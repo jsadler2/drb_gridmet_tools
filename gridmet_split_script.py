@@ -94,7 +94,7 @@ def create_weightmap(xarray_dict, polygon, output_data_folder, weightmap_var = N
         # If no var is specified, first var of xarray_dict will be used for generating weight file, and name of output will be generic: 'grd2shp_weights.pickle'
         weightmap_file = os.path.join(output_data_folder, 'grd2shp_weights.pickle')
         weightmap_var = list(xarray_dict.keys())[0]
-     else:
+    else:
         weightmap_file = os.path.join(output_data_folder, f'grd2shp_weights_{weightmap_var}.pickle')
 
 
@@ -102,65 +102,40 @@ def create_weightmap(xarray_dict, polygon, output_data_folder, weightmap_var = N
     start = time.perf_counter()
     weightmap = xa.pixel_overlaps(xarray_dict[weightmap_var], polygon)
     end = time.perf_counter()
-    print(f'finished agg in {round(end - start, 2)} second(s)')
+    print(f'finished weightmap calculation in {round(end - start, 2)} second(s)')
 
     with open(weightmap_file, 'wb') as file:
         pickle.dump(weightmap, file)
 
     return weightmap_file
 
-def g2shp_regridding(xarray_dict, polygon, weightmap_file, output_data_folder, g2s_file_prefix,
-                     g2s_time_var = 'day', g2s_lat_var = 'lat', g2s_lon_var = 'lon'):
+def g2shp_regridding(xarray_dict, polygon, weightmap_file, out_file):
 
     """
     :param dict xarray_dict: dictionary of gridmet data. the output of get_gridmet_datasets()
     :param gpd.GeoDataFrame polygon: geodataframe polygon or multipolygon that is used for regridding
     :paran str weightmap_file: path to weight file for redridding. Output of create_weightmap()
     :param str output_data_folder: path to folder for function output
-    :param str g2s_time_var: time variable for g2shp initialization (i.e.g2s_time_var = 'day')
-    :param str g2s_lat_var: latitude variable for g2shp initialization (i.e.g2s_time_var = 'lat')
-    :param str g2s_lon_var: time variable for g2shp initialization (i.e.g2s_time_var = 'lon')
     :return: regriddied g2s object, which is saved as .nc to output_data_folder
     """
 
     ## params for g2s.initialise()
-    # grab long name of data vars from dict and place in list
-    vars_long_list = [list(xarray_dict[key])[0] for key in xarray_dict]
-    # List of short names of data vars from dict keys
-    vars_short_list = list(xarray_dict.keys())
     # Lsit of xarray.datasets
     vars_grd_list = list(xarray_dict.values())
-
-    ## initialize Grd2ShpXagg()
-    g2s = grd2shp_xagg.Grd2ShpXagg()
-    g2s.initialize(
-        grd = vars_grd_list,
-        shp= polygon,
-        wght_file= weightmap_file,
-        time_var = g2s_time_var,
-        lat_var = g2s_lat_var,
-        lon_var = g2s_lon_var,
-        var = vars_long_list,
-        var_output = vars_short_list,
-        ctype=0,
-    )
+    
+    combined_ds = xr.merge(vars_grd_list)
+    with open(weightmap_file, "rb") as file:
+        weightmap = pickle.load(file) 
 
     # Run regridding
     start = time.perf_counter()
-    g2s.run_weights()
+    ds_agg = xa.aggregate(combined_ds, weightmap)
     end = time.perf_counter()
     print('finished agg in {} second(s)'.format(round(end - start, 2)))
-    print(g2s)
 
     ## Saving output
-    g2s.write_gm_file(opath=output_data_folder, prefix=g2s_file_prefix)
-
-    ## Printing location of output
-    todays_date = str(datetime.datetime.now().strftime("%Y_%m_%d"))
-    file_name = g2s_file_prefix + "climate_" + todays_date + ".nc"
-    print('netcdf4 file path: ' + os.path.join(output_data_folder, file_name))
-
-    return g2s
+    ds_agg.to_netcdf(out_file)
+    return ds_agg
 
 # Variables and run functions
 if __name__ =='__main__':
@@ -168,14 +143,13 @@ if __name__ =='__main__':
     ## Variable definitions
     ### official list of variables needed for drb-inland-salinity model
     data_vars_shrt_all = ['tmmx', 'tmmn', 'pr', 'srad', 'vs','rmax','rmin','sph']
+    data_vars_shrt_all = data_vars_shrt_all[:2]
     ### drb catchment polygons
-    gdf_nhru02_path = './data/nhru_02/nhru_02.shp'
+    gdf_nhru02_path = './data/drb_prms_basins_fixed_from_nhru02.shp'
     gdf = gpd.read_file(gdf_nhru02_path)
     ### date range
     start_date = '1979-01-01'
-    end_date = '2021-01-01'
-    ### lat lon
-    lon_min, lat_min, lon_max, lat_max = gdf.total_bounds
+    end_date = '1985-01-01'
     ### output folder
     output_path = './data/'
 
@@ -193,11 +167,10 @@ if __name__ =='__main__':
     ### Subset for streamlined testing
     subset = {key: xarray_dict[key] for key in ['tmmx']}
 
+    start = time.perf_counter()
     g2shp_regridding(xarray_dict= xarray_dict,
                      polygon=gdf,
                      weightmap_file= weight_map_path,
-                     g2s_file_prefix='t_',
-                     output_data_folder= output_path,
-                     g2s_time_var = 'day',
-                     g2s_lat_var = 'lat',
-                     g2s_lon_var = 'lon')
+                     out_file = "test_out.nc")
+    end = time.perf_counter()
+    print("total regrid time: ", end-start)

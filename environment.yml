@@ -7,7 +7,6 @@ dependencies:
   - pip
   - click
   - pygeoapi
-  - xagg
   - pandas
   - geopandas
   - rasterstats
@@ -32,5 +31,6 @@ dependencies:
   - numba
   - pip:
     - git+https://github.com/rmcd-mscb/grd2shp_xagg.git@main
+    - git+https://github.com/jsadler2/xagg.git@dot-product-basic
     - datetime
 
